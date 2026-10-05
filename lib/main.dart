@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/create_edit_task_screen.dart';
+import 'screens/project_dashboard_screen.dart';
 import 'theme/app_theme.dart';
 
 void main() {
@@ -16,7 +16,7 @@ class TempoApp extends StatelessWidget {
       title: 'Tempo',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: const CreateEditTaskScreen(),
+      home: const ProjectDashboardScreen(),
     );
   }
 }
