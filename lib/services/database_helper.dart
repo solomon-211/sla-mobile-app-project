@@ -116,4 +116,124 @@ class DatabaseHelper {
       }
     }
   }
+
+  // ---------------------------------------------------------------- Members
+
+  Future<List<Map<String, Object?>>> getMembers() async {
+    final db = await database;
+    return db.query(_members, orderBy: 'id ASC');
+  }
+
+  /// Saves a new member and returns the row with its generated id.
+  Future<int> insertMember(Map<String, Object?> member) async {
+    final db = await database;
+    return db.insert(_members, member);
+  }
+
+  /// True when [password] matches the stored value for [memberId].
+  Future<bool> checkPassword(int memberId, String password) async {
+    final db = await database;
+    final rows = await db.query(
+      _members,
+      columns: ['id'],
+      where: 'id = ? AND password = ?',
+      whereArgs: [memberId, password],
+    );
+    return rows.isNotEmpty;
+  }
+
+  Future<void> updateMember(Map<String, Object?> member, int id) async {
+    final db = await database;
+    await db.update(_members, member, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteMember(int id) async {
+    final db = await database;
+    await db.delete(_members, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ------------------------------------------------------------------ Tasks
+
+  /// All tasks ordered by earliest deadline first.
+  Future<List<Task>> getTasks() async {
+    final db = await database;
+    final rows = await db.query(_tasks, orderBy: 'due_date ASC');
+    return rows.map(Task.fromMap).toList();
+  }
+
+  Future<Task?> getTask(int id) async {
+    final db = await database;
+    final rows = await db.query(_tasks, where: 'id = ?', whereArgs: [id]);
+    return rows.isEmpty ? null : Task.fromMap(rows.first);
+  }
+
+  /// Saves a new task together with its first history entry in one transaction.
+  Future<Task> insertTask(Task task, {required String activity}) async {
+    final db = await database;
+    return db.transaction((txn) async {
+      final id = await txn.insert(_tasks, task.toMap());
+      await txn.insert(
+        _activities,
+        TaskActivity(
+          taskId: id,
+          message: activity,
+          createdAt: DateTime.now(),
+        ).toMap(),
+      );
+      return task.withId(id);
+    });
+  }
+
+  /// Updates a task and records every change in its history, all in one
+  /// transaction so the task and its log are never out of sync.
+  Future<void> updateTask(Task task, {List<String> activities = const []}) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.update(
+        _tasks,
+        task.toMap(),
+        where: 'id = ?',
+        whereArgs: [task.id],
+      );
+      final now = DateTime.now();
+      for (final message in activities) {
+        await txn.insert(
+          _activities,
+          TaskActivity(taskId: task.id!, message: message, createdAt: now)
+              .toMap(),
+        );
+      }
+    });
+  }
+
+  /// Convenience method: moves a task to [status] and returns the updated task.
+  Future<Task> updateTaskStatus(Task task, TaskStatus status) async {
+    final updated = task.withStatus(status);
+    await updateTask(
+      updated,
+      activities: ['Status changed to ${status.label}'],
+    );
+    return updated;
+  }
+
+  /// Deletes a task. Its activity rows are removed automatically via
+  /// ON DELETE CASCADE.
+  Future<void> deleteTask(int id) async {
+    final db = await database;
+    await db.delete(_tasks, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // --------------------------------------------------------------- Activity
+
+  /// A task's history, newest entry first.
+  Future<List<TaskActivity>> getActivities(int taskId) async {
+    final db = await database;
+    final rows = await db.query(
+      _activities,
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+      orderBy: 'created_at DESC, id DESC',
+    );
+    return rows.map(TaskActivity.fromMap).toList();
+  }
 }
