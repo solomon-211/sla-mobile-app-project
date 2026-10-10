@@ -212,67 +212,73 @@ class _SignInScreenState extends State<SignInScreen> {
   Widget _buildForm() {
     return Form(
       key: _formKey,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SlideUpIn(
-            delay: const Duration(milliseconds: 300),
-            child: TextFormField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              autocorrect: false,
-              style: AppText.manrope(15, weight: FontWeight.w600),
-              decoration: InputDecoration(
-                hintText: 'Email',
-                prefixIcon: const Icon(Icons.mail_outline_rounded, size: 20),
-                errorText: _emailError,
-              ),
-              validator: Validators.email,
-              onChanged: (_) {
-                if (_emailError != null) setState(() => _emailError = null);
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          SlideUpIn(
-            delay: const Duration(milliseconds: 380),
-            child: TextFormField(
-              controller: _passwordController,
-              obscureText: _obscurePassword,
-              textInputAction: TextInputAction.done,
-              style: AppText.manrope(15, weight: FontWeight.w600),
-              decoration: InputDecoration(
-                hintText: 'Password',
-                prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
-                errorText: _passwordError,
-                suffixIcon: PasswordToggle(
-                  obscured: _obscurePassword,
-                  onPressed: () {
-                    setState(() => _obscurePassword = !_obscurePassword);
-                  },
+      // Groups email and password so the phone's password manager can
+      // offer and save the login.
+      child: AutofillGroup(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SlideUpIn(
+              delay: const Duration(milliseconds: 300),
+              child: TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autocorrect: false,
+                autofillHints: const [AutofillHints.email],
+                style: AppText.manrope(15, weight: FontWeight.w600),
+                decoration: InputDecoration(
+                  hintText: 'Email',
+                  prefixIcon: const Icon(Icons.mail_outline_rounded, size: 20),
+                  errorText: _emailError,
                 ),
+                validator: Validators.email,
+                onChanged: (_) {
+                  if (_emailError != null) setState(() => _emailError = null);
+                },
               ),
-              validator: Validators.password,
-              onChanged: (_) {
-                if (_passwordError != null) {
-                  setState(() => _passwordError = null);
-                }
-              },
-              onFieldSubmitted: (_) => _signInWithEmail(),
             ),
-          ),
-          const SizedBox(height: 20),
-          SlideUpIn(
-            delay: const Duration(milliseconds: 460),
-            child: PrimaryPillButton(
-              label: 'Sign In',
-              loading: _submitting,
-              // Members must be loaded before an email can be matched.
-              onPressed: _loadingMembers ? null : _signInWithEmail,
+            const SizedBox(height: 12),
+            SlideUpIn(
+              delay: const Duration(milliseconds: 380),
+              child: TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                autofillHints: const [AutofillHints.password],
+                textInputAction: TextInputAction.done,
+                style: AppText.manrope(15, weight: FontWeight.w600),
+                decoration: InputDecoration(
+                  hintText: 'Password',
+                  prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
+                  errorText: _passwordError,
+                  suffixIcon: PasswordToggle(
+                    obscured: _obscurePassword,
+                    onPressed: () {
+                      setState(() => _obscurePassword = !_obscurePassword);
+                    },
+                  ),
+                ),
+                validator: Validators.password,
+                onChanged: (_) {
+                  if (_passwordError != null) {
+                    setState(() => _passwordError = null);
+                  }
+                },
+                onFieldSubmitted: (_) => _signInWithEmail(),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            SlideUpIn(
+              delay: const Duration(milliseconds: 460),
+              child: PrimaryPillButton(
+                label: 'Sign In',
+                loading: _submitting,
+                // Members must be loaded before an email can be matched.
+                onPressed: _loadingMembers ? null : _signInWithEmail,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
