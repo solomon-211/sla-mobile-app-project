@@ -257,7 +257,7 @@ class _PhotoSlide extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // TODO: replace with licensed image
+        //image gotten from pexels
         Image.asset(
           'assets/images/sticky-desk.png',
           fit: BoxFit.cover,

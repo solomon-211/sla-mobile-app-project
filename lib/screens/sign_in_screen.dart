@@ -117,6 +117,9 @@ class _SignInScreenState extends State<SignInScreen> {
     try {
       await SessionService.signIn(member.id!, remember: _rememberMe);
       if (!mounted) return;
+      // goHome uses pushNamedAndRemoveUntil, which clears the stack, so Back
+      // can't return here. User selection from the brief lives in Team, under
+      // Switch user.
       AppRoutes.goHome(context);
     } catch (error, stack) {
       logError('Could not save session', error, stack);

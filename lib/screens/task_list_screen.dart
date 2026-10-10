@@ -172,6 +172,8 @@ class _TaskListScreenState extends State<TaskListScreen> {
       _buildTitle(),
       _buildSearch(),
       _buildFilterChips(slaOf),
+      if (filter != null || _query.trim().isNotEmpty)
+        _buildResultCount(visible.length),
       if (taskRows.isEmpty) _buildEmpty() else ...taskRows,
     ];
 
@@ -365,6 +367,17 @@ class _TaskListScreenState extends State<TaskListScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// "Showing 3 of 14 tasks", shown only while a search or filter is active.
+  Widget _buildResultCount(int shown) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 4, 4, 2),
+      child: Text(
+        'Showing $shown of ${widget.tasks.length} tasks',
+        style: AppText.caption(),
       ),
     );
   }
