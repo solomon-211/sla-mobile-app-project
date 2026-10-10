@@ -65,13 +65,27 @@ class TaskCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        '${task.category} · ${task.priority.label} priority',
-                        style: AppText.manrope(
-                          13,
-                          weight: FontWeight.w600,
-                          color: muted,
-                        ),
+                      Row(
+                        children: [
+                          // Same colours as the priority pill on the form.
+                          CircleAvatar(
+                            radius: 4,
+                            backgroundColor: priorityColor(task.priority),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '${task.category} · ${task.priority.label} priority',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.manrope(
+                                13,
+                                weight: FontWeight.w600,
+                                color: muted,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 10),
                       Container(
