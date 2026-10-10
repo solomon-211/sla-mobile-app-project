@@ -1,22 +1,35 @@
 import 'package:flutter/material.dart';
-
-import 'screens/project_dashboard_screen.dart';
+import 'app_router.dart';
+import 'services/session_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
-  runApp(const TempoApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Skip the welcome screens when a remembered user is saved on the device.
+  // If the saved session cannot be read, start on the Landing screen.
+  var signedIn = false;
+  try {
+    signedIn = await SessionService.restoreSession();
+  } catch (error, stack) {
+    debugPrint('Could not restore session: $error\n$stack');
+    signedIn = false;
+  }
+  runApp(SprintTrackApp(startSignedIn: signedIn));
 }
 
-class TempoApp extends StatelessWidget {
-  const TempoApp({super.key});
+class SprintTrackApp extends StatelessWidget {
+  const SprintTrackApp({super.key, required this.startSignedIn});
+
+  final bool startSignedIn;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Tempo',
+      title: 'SprintTrack',
       debugShowCheckedModeBanner: false,
-      theme: buildAppTheme(),
-      home: const ProjectDashboardScreen(),
+      theme: AppTheme.light,
+      initialRoute: startSignedIn ? AppRoutes.home : AppRoutes.landing,
+      onGenerateRoute: AppRoutes.onGenerateRoute,
     );
   }
 }
