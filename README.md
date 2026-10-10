@@ -8,12 +8,17 @@ on the device; there is no backend.
 
 | Screen | File |
 | --- | --- |
-| Sign In / User Selection | `lib/screens/sign_in_screen.dart` |
+| Landing (first screen) | `lib/screens/landing_screen.dart` |
+| Register | `lib/screens/register_screen.dart` |
+| Sign In | `lib/screens/sign_in_screen.dart` |
 | Project Dashboard | `lib/screens/dashboard_screen.dart` |
 | Task List | `lib/screens/task_list_screen.dart` |
 | Task Details | `lib/screens/task_details_screen.dart` |
 | Create / Edit Task | `lib/screens/task_form_screen.dart` |
-| Team Members | `lib/screens/team_screen.dart` |
+| Team Members (includes user selection: Switch user) | `lib/screens/team_screen.dart` |
+
+The app opens on Landing, or straight on the Dashboard when a signed-in user
+is remembered on the device.
 
 ## SLA rules
 
@@ -31,8 +36,10 @@ Statuses refresh every minute while the app is open.
 
 ## Demo sign in
 
-Tap any team member, or sign in with their email and the demo password
-`sprint123`. Accounts made with "Create account" use the password chosen there.
+Sign in with any demo member's email (for example `amina@devteam.app`) and the
+demo password `sprint123`, or create an account with "Get started". Accounts
+made there use the password chosen at sign-up. Once signed in, Team →
+Switch user changes to another member.
 
 ## Project structure
 
@@ -46,17 +53,19 @@ lib/
   utils/               SLA rules, validators, date formatting
   data/                Demo data inserted on first launch
   screens/             One file per screen, plus HomeShell (bottom navigation)
-  widgets/             Shared widgets (badges, avatars, task card, dialogs, donut chart)
+  widgets/             Shared widgets (buttons, cards, badges, avatars, task card,
+                       dialogs, donut chart, bottom nav, entrance animations)
+assets/images/         Landing slide photo (from Pexels)
 test/
-  sla_test.dart        Unit tests for the SLA rules and validators
+  sla_test.dart        Unit tests for the SLA rules and validators, plus widget tests
 ```
 
 ## Storage
 
 - **sqflite** stores tasks, team members and task history, because they are
   related records that need querying and sorting.
-- **SharedPreferences** stores the signed-in user and the "Remember me" choice,
-  which are single key-value settings.
+- **SharedPreferences** stores the signed-in user and the project name, which
+  are single key-value settings. Sessions are always remembered.
 
 ## Running
 
