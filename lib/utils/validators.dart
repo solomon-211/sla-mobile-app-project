@@ -4,6 +4,7 @@ class Validators {
   static const titleMaxLength = 60;
   static const descriptionMaxLength = 300;
   static const passwordMinLength = 6;
+  static const projectNameMaxLength = 40;
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 

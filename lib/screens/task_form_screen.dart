@@ -1,8 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../models/task.dart';
+import '../models/team_member.dart';
 import '../services/database_helper.dart';
+import '../services/session_service.dart';
+import '../theme/app_theme.dart';
+import '../utils/formatters.dart';
 import '../utils/validators.dart';
+import '../widgets/app_card.dart';
+import '../widgets/dialogs.dart';
+import '../widgets/icon_circle_button.dart';
+import '../widgets/pill_buttons.dart';
+import '../widgets/status_widgets.dart';
 
 /// Create / Edit Task. Pass a [task] to edit it, or null to create a new one.
 class TaskFormScreen extends StatefulWidget {
@@ -21,25 +30,29 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
     text: widget.task?.description,
   );
 
+  // Form values that are not text. They start from the task being edited.
   late String _category = widget.task?.category ?? taskCategories.first;
   late int? _assigneeId = widget.task?.assigneeId;
   late DateTime? _dueDate = widget.task?.dueDate;
   late TaskPriority _priority = widget.task?.priority ?? TaskPriority.medium;
   late TaskStatus _status = widget.task?.status ?? TaskStatus.todo;
 
-  /// Tracks the assignee the form opened with to detect unsaved changes.
+  /// The assignee the form opened with, used to detect unsaved changes.
+  /// For a new task this becomes the signed-in user once members load.
   late int? _initialAssigneeId = widget.task?.assigneeId;
 
-  List<Map<String, Object?>> _members = [];
+  List<TeamMember> _members = [];
   bool _loadingMembers = true;
   String? _loadError;
   bool _saving = false;
 
-  /// Errors appear only after the first failed submit attempt.
+  /// Errors appear after the first failed submit, then update as the user
+  /// fixes each field.
   AutovalidateMode _autovalidateMode = AutovalidateMode.disabled;
 
   bool get _isEditing => widget.task != null;
 
+  /// True when any field differs from what the form opened with.
   bool get _hasChanges {
     final task = widget.task;
     return _titleController.text.trim() != (task?.title ?? '') ||
@@ -70,18 +83,21 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
       _loadError = null;
     });
     try {
-      final rows = await DatabaseHelper.instance.getMembers();
+      final members = await DatabaseHelper.instance.getMembers();
+      final userId = await SessionService.currentUserId();
       if (!mounted) return;
       setState(() {
-        _members = rows;
+        _members = members;
         _loadingMembers = false;
-        // Default new tasks to the first member.
-        if (!_isEditing && _assigneeId == null && rows.isNotEmpty) {
-          _assigneeId = rows.first['id'] as int;
-          _initialAssigneeId = _assigneeId;
+        // New tasks are assigned to the signed-in user by default.
+        if (!_isEditing && _assigneeId == null) {
+          final me = members.where((m) => m.id == userId).firstOrNull;
+          _assigneeId = me?.id;
+          _initialAssigneeId = me?.id;
         }
       });
-    } catch (_) {
+    } catch (error, stack) {
+      logError('Could not load members', error, stack);
       if (!mounted) return;
       setState(() {
         _loadingMembers = false;
@@ -114,35 +130,29 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
     if (time == null || !mounted) return;
 
     final picked = DateTime(
-      date.year, date.month, date.day, time.hour, time.minute,
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
     );
     setState(() => _dueDate = picked);
     field.didChange(picked);
   }
 
-  /// Asks before discarding unsaved changes.
+  /// Called when the user presses Back. Leaves straight away when nothing
+  /// changed, otherwise asks before throwing the changes away.
   Future<void> _confirmLeave() async {
     if (_saving) return;
     if (_hasChanges) {
-      final discard = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Discard changes?'),
-          content: const Text(
-              'Your changes to this task have not been saved.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Keep editing'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Discard'),
-            ),
-          ],
-        ),
+      final discard = await showConfirmDialog(
+        context,
+        title: 'Discard changes?',
+        message: 'Your changes to this task have not been saved.',
+        confirmLabel: 'Discard',
+        destructive: true,
       );
-      if (discard != true || !mounted) return;
+      if (!discard || !mounted) return;
     }
     Navigator.pop(context);
   }
@@ -151,28 +161,26 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) {
       setState(() => _autovalidateMode = AutovalidateMode.onUserInteraction);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fix the highlighted fields.')),
-      );
+      showMessage(context, 'Please fix the highlighted fields.');
       return;
     }
 
     setState(() => _saving = true);
     final existing = widget.task;
     final now = DateTime.now();
-    final assigneeName = _members
-        .firstWhere((m) => m['id'] == _assigneeId)['name'] as String;
+    final assignee = _members.firstWhere((m) => m.id == _assigneeId);
 
     final task = Task(
       id: existing?.id,
       title: _titleController.text.trim(),
       description: _descriptionController.text.trim(),
       category: _category,
-      assigneeId: _assigneeId!,
+      assigneeId: assignee.id!,
       dueDate: _dueDate!,
       priority: _priority,
       status: _status,
       createdAt: existing?.createdAt ?? now,
+      // Keep the original completion time unless the task just became Done.
       completedAt: _status == TaskStatus.done
           ? (existing?.completedAt ?? now)
           : null,
@@ -183,33 +191,34 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
       if (existing == null) {
         await db.insertTask(
           task,
-          activity: 'Created and assigned to $assigneeName',
+          activity: 'Created and assigned to ${assignee.name}',
         );
       } else {
-        await db.updateTask(task, activities: [
-          if (task.status != existing.status)
-            'Status changed to ${task.status.label}',
-          if (task.assigneeId != existing.assigneeId)
-            'Reassigned to $assigneeName',
-          if (task.dueDate != existing.dueDate)
-            'Due date updated',
-          if (task.status == existing.status &&
-              task.assigneeId == existing.assigneeId &&
-              task.dueDate == existing.dueDate)
-            'Task details updated',
-        ]);
+        await db.updateTask(
+          task,
+          activities: [
+            if (task.status != existing.status)
+              'Status changed to ${task.status.label}',
+            if (task.assigneeId != existing.assigneeId)
+              'Reassigned to ${assignee.name}',
+            if (task.dueDate != existing.dueDate)
+              'Due date changed to ${formatDateTime(task.dueDate)}',
+            if (task.status == existing.status &&
+                task.assigneeId == existing.assigneeId &&
+                task.dueDate == existing.dueDate)
+              'Task details updated',
+          ],
+        );
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_isEditing ? 'Task updated' : 'Task created')),
-      );
+      showMessage(context, _isEditing ? 'Task updated' : 'Task created');
+      // Navigator.pop skips PopScope, so no "discard changes" prompt here.
       Navigator.pop(context);
-    } catch (_) {
+    } catch (error, stack) {
+      logError('Could not save task', error, stack);
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not save the task. Please try again.')),
-      );
+      showMessage(context, 'Could not save the task. Please try again.');
     }
   }
 
@@ -217,49 +226,44 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
   Widget build(BuildContext context) {
     final ready = !_loadingMembers && _loadError == null;
 
+    // canPop is false so every Back press goes through _confirmLeave.
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
+      onPopInvokedWithResult: (didPop, result) {
         if (!didPop) _confirmLeave();
       },
       child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, size: 18),
-            onPressed: () => Navigator.maybePop(context),
+        // The save button floats over the form.
+        extendBody: true,
+        body: SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: _loadingMembers
+                    ? const Center(child: CircularProgressIndicator())
+                    : _loadError != null
+                    ? EmptyState(
+                        icon: Icons.error_outline,
+                        title: _loadError!,
+                        message:
+                            'The form needs the team list to assign tasks.',
+                        actionLabel: 'Try again',
+                        onAction: _loadMembers,
+                      )
+                    : _buildForm(),
+              ),
+            ],
           ),
-          title: Text(_isEditing ? 'Edit Task' : 'Create Task'),
         ),
-        body: _loadingMembers
-            ? const Center(child: CircularProgressIndicator())
-            : _loadError != null
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(_loadError!),
-                        const SizedBox(height: 12),
-                        FilledButton(
-                          onPressed: _loadMembers,
-                          child: const Text('Try again'),
-                        ),
-                      ],
-                    ),
-                  )
-                : _buildForm(),
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: FilledButton(
+            child: PrimaryPillButton(
+              label: _isEditing ? 'Save changes' : 'Create Task',
+              loading: _saving,
               onPressed: _saving || !ready ? null : _save,
-              child: _saving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : Text(_isEditing ? 'Save changes' : 'Create Task'),
             ),
           ),
         ),
@@ -267,198 +271,316 @@ class _TaskFormScreenState extends State<TaskFormScreen> {
     );
   }
 
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Row(
+        children: [
+          IconCircleButton(
+            icon: Icons.arrow_back_ios_new_rounded,
+            tooltip: 'Back',
+            // maybePop goes through PopScope, so unsaved changes are checked.
+            onPressed: () => Navigator.maybePop(context),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              _isEditing ? 'Edit Task' : 'Create Task',
+              style: AppText.sora(26, letterSpacing: -0.8),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildForm() {
+    // A task can only be marked Done after it exists.
     final statusOptions = [
-      for (final s in TaskStatus.values)
-        if (_isEditing || s != TaskStatus.done) s,
+      for (final status in TaskStatus.values)
+        if (_isEditing || status != TaskStatus.done) status,
     ];
+    final fieldText = AppText.manrope(15, weight: FontWeight.w600);
 
     return Form(
       key: _formKey,
       autovalidateMode: _autovalidateMode,
       child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+        // Bottom padding keeps the last row clear of the save button.
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 112),
         children: [
-          // ── Title ──────────────────────────────────────────────────────
           const _FieldLabel('Task title'),
           TextFormField(
             controller: _titleController,
             textCapitalization: TextCapitalization.sentences,
             textInputAction: TextInputAction.next,
             maxLength: Validators.titleMaxLength,
+            style: fieldText,
+            // The limit is enforced by maxLength; the counter is hidden.
             decoration: const InputDecoration(
               hintText: 'Enter task title',
               counterText: '',
             ),
             validator: Validators.taskTitle,
           ),
-          const SizedBox(height: 12),
-
-          // ── Description ────────────────────────────────────────────────
+          const SizedBox(height: 8),
           const _FieldLabel('Description'),
           TextFormField(
             controller: _descriptionController,
             textCapitalization: TextCapitalization.sentences,
             minLines: 3,
             maxLines: 4,
+            // maxLength adds the "0/300" counter and blocks extra typing.
             maxLength: Validators.descriptionMaxLength,
+            style: AppText.manrope(15, height: 22),
             decoration: const InputDecoration(
               hintText: 'Enter task description (optional)',
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 16,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
+          _buildDetailsCard(statusOptions),
+        ],
+      ),
+    );
+  }
 
-          // ── Assignee ───────────────────────────────────────────────────
-          const _FieldLabel('Assign to'),
-          DropdownButtonFormField<int>(
-            value: _members.any((m) => m['id'] == _assigneeId)
-                ? _assigneeId
-                : null,
-            isExpanded: true,
-            hint: const Text('Select a team member'),
-            items: [
-              for (final m in _members)
-                DropdownMenuItem(
-                  value: m['id'] as int,
-                  child: Text(
-                    '${m['name']} (${m['role']})',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-            ],
-            validator: (v) => v == null ? 'Choose who will do this task' : null,
-            onChanged: (v) => setState(() => _assigneeId = v),
-          ),
-          const SizedBox(height: 12),
-
-          // ── Category ───────────────────────────────────────────────────
-          const _FieldLabel('Category'),
-          DropdownButtonFormField<String>(
-            value: _category,
-            isExpanded: true,
-            items: [
-              for (final c in taskCategories)
-                DropdownMenuItem(value: c, child: Text(c)),
-            ],
-            onChanged: (v) => setState(() => _category = v!),
-          ),
-          const SizedBox(height: 12),
-
-          // ── Due date ───────────────────────────────────────────────────
-          const _FieldLabel('Due date'),
-          FormField<DateTime>(
-            initialValue: _dueDate,
-            validator: (v) =>
-                Validators.dueDate(v, original: widget.task?.dueDate),
-            builder: (field) => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => _pickDueDate(field),
-                  child: InputDecorator(
-                    isEmpty: field.value == null,
-                    decoration: InputDecoration(
-                      hintText: 'Select date and time',
-                      errorText: field.errorText,
-                      suffixIcon: const Icon(Icons.calendar_today_outlined,
-                          size: 18),
+  /// One white card holding assignee, category, due date, priority and
+  /// status, separated by thin dividers.
+  Widget _buildDetailsCard(List<TaskStatus> statusOptions) {
+    return AppCard(
+      radius: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _CardRow(
+            icon: Icons.person_outline_rounded,
+            iconBackground: AppColors.moss,
+            iconColor: AppColors.onMoss,
+            label: 'Assign to',
+            child: DropdownButtonFormField<int>(
+              // Only use the saved assignee if they are still in the list,
+              // otherwise the dropdown would have a value with no matching item.
+              initialValue: _members.any((m) => m.id == _assigneeId)
+                  ? _assigneeId
+                  : null,
+              isExpanded: true,
+              decoration: _inlineDecoration,
+              style: _inlineText,
+              borderRadius: BorderRadius.circular(20),
+              hint: Text(
+                'Select a team member',
+                style: AppText.manrope(15, color: AppColors.hint),
+              ),
+              items: [
+                for (final member in _members)
+                  DropdownMenuItem(
+                    value: member.id,
+                    child: Text(
+                      '${member.name} (${member.role})',
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    child: field.value == null
-                        ? null
-                        : Text(_formatDate(field.value!)),
+                  ),
+              ],
+              validator: (value) =>
+                  value == null ? 'Choose who will do this task' : null,
+              onChanged: (value) => setState(() => _assigneeId = value),
+            ),
+          ),
+          const Divider(),
+          _CardRow(
+            icon: Icons.label_outline_rounded,
+            label: 'Category',
+            child: DropdownButtonFormField<String>(
+              initialValue: _category,
+              isExpanded: true,
+              decoration: _inlineDecoration,
+              style: _inlineText,
+              borderRadius: BorderRadius.circular(20),
+              items: [
+                for (final category in taskCategories)
+                  DropdownMenuItem(value: category, child: Text(category)),
+              ],
+              onChanged: (value) => setState(() => _category = value!),
+            ),
+          ),
+          const Divider(),
+          _buildDueDateRow(),
+          const Divider(),
+          _buildPriorityRow(),
+          const Divider(),
+          _CardRow(
+            icon: Icons.notes_rounded,
+            iconBackground: AppColors.ink,
+            iconColor: AppColors.moss,
+            label: 'Status',
+            child: DropdownButtonFormField<TaskStatus>(
+              initialValue: _status,
+              isExpanded: true,
+              decoration: _inlineDecoration,
+              style: _inlineText,
+              borderRadius: BorderRadius.circular(20),
+              items: [
+                for (final status in statusOptions)
+                  DropdownMenuItem(value: status, child: Text(status.label)),
+              ],
+              onChanged: (value) => setState(() => _status = value!),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Dropdowns inside the card have no box of their own.
+  static const _inlineDecoration = InputDecoration(
+    filled: false,
+    isDense: true,
+    contentPadding: EdgeInsets.zero,
+    border: InputBorder.none,
+    enabledBorder: InputBorder.none,
+    focusedBorder: InputBorder.none,
+    errorBorder: InputBorder.none,
+    focusedErrorBorder: InputBorder.none,
+  );
+
+  TextStyle get _inlineText => AppText.manrope(15, weight: FontWeight.w800);
+
+  Widget _buildDueDateRow() {
+    return FormField<DateTime>(
+      initialValue: _dueDate,
+      validator: (value) =>
+          Validators.dueDate(value, original: widget.task?.dueDate),
+      builder: (field) {
+        final hasError = field.errorText != null;
+        final value = field.value;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _IconCircle(
+                    icon: Icons.calendar_today_outlined,
+                    background: hasError
+                        ? AppColors.coralBg
+                        : AppColors.surfaceMuted,
+                    color: hasError ? AppColors.coralDeep : AppColors.ink,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Due date',
+                          style: AppText.manrope(
+                            12,
+                            weight: FontWeight.w800,
+                            color: AppColors.textMuted,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          value == null
+                              ? 'Select date and time'
+                              : formatDateTime(value),
+                          style: value == null
+                              ? AppText.manrope(15, color: AppColors.hint)
+                              : AppText.manrope(
+                                  15,
+                                  weight: FontWeight.w800,
+                                  color: hasError
+                                      ? AppColors.error
+                                      : AppColors.ink,
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _pickDueDate(field),
+                    style: TextButton.styleFrom(
+                      backgroundColor: AppColors.surfaceMuted,
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                    ),
+                    child: Text(
+                      value == null ? 'Pick' : 'Change',
+                      style: AppText.label(),
+                    ),
+                  ),
+                ],
+              ),
+              if (hasError)
+                Padding(
+                  padding: const EdgeInsets.only(left: 58, top: 6),
+                  child: Text(
+                    field.errorText!,
+                    style: AppText.manrope(
+                      13,
+                      weight: FontWeight.w700,
+                      color: AppColors.error,
+                    ),
                   ),
                 ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// Low / Medium / High as one segmented pill.
+  Widget _buildPriorityRow() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.flag_outlined,
+                size: 15,
+                color: AppColors.textMuted,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Priority',
+                style: AppText.manrope(
+                  12,
+                  weight: FontWeight.w800,
+                  color: AppColors.textMuted,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: AppColors.surfaceMuted,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Row(
+              children: [
+                for (final priority in TaskPriority.values)
+                  Expanded(child: _priorityOption(priority)),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-
-          // ── Priority ───────────────────────────────────────────────────
-          const _FieldLabel('Priority'),
-          _PrioritySelector(
-            value: _priority,
-            onChanged: (v) => setState(() => _priority = v),
-          ),
-          const SizedBox(height: 12),
-
-          // ── Status ─────────────────────────────────────────────────────
-          const _FieldLabel('Status'),
-          DropdownButtonFormField<TaskStatus>(
-            value: _status,
-            isExpanded: true,
-            items: [
-              for (final s in statusOptions)
-                DropdownMenuItem(value: s, child: Text(s.label)),
-            ],
-            onChanged: (v) => setState(() => _status = v!),
-          ),
         ],
       ),
     );
   }
 
-  String _formatDate(DateTime date) {
-    const months = [
-      'Jan','Feb','Mar','Apr','May','Jun',
-      'Jul','Aug','Sep','Oct','Nov','Dec',
-    ];
-    final h = date.hour.toString().padLeft(2, '0');
-    final m = date.minute.toString().padLeft(2, '0');
-    return '${date.day} ${months[date.month - 1]} ${date.year}, $h:$m';
-  }
-}
-
-// ── Shared small widgets ────────────────────────────────────────────────────
-
-class _FieldLabel extends StatelessWidget {
-  const _FieldLabel(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-}
-
-/// Low / Medium / High as a custom row of InkWell + AnimatedContainer options.
-class _PrioritySelector extends StatelessWidget {
-  const _PrioritySelector({required this.value, required this.onChanged});
-
-  final TaskPriority value;
-  final ValueChanged<TaskPriority> onChanged;
-
-  static const _colors = {
-    TaskPriority.low: Color(0xFF4C6FD8),
-    TaskPriority.medium: Color(0xFFE08A00),
-    TaskPriority.high: Color(0xFFE5484D),
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F3F5),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        children: [
-          for (final priority in TaskPriority.values)
-            Expanded(child: _option(priority)),
-        ],
-      ),
-    );
-  }
-
-  Widget _option(TaskPriority priority) {
-    final selected = priority == value;
+  Widget _priorityOption(TaskPriority priority) {
+    final selected = priority == _priority;
     return Semantics(
       inMutuallyExclusiveGroup: true,
       checked: selected,
@@ -470,12 +592,12 @@ class _PrioritySelector extends StatelessWidget {
         shape: const StadiumBorder(),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
-          onTap: () => onChanged(priority),
+          onTap: () => setState(() => _priority = priority),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             height: 44,
             decoration: BoxDecoration(
-              color: selected ? const Color(0xFF1B1F23) : Colors.transparent,
+              color: selected ? AppColors.ink : Colors.transparent,
               borderRadius: BorderRadius.circular(999),
             ),
             child: Row(
@@ -483,21 +605,105 @@ class _PrioritySelector extends StatelessWidget {
               children: [
                 CircleAvatar(
                   radius: 4,
-                  backgroundColor: _colors[priority],
+                  backgroundColor: priorityColor(priority),
                 ),
                 const SizedBox(width: 6),
                 Text(
                   priority.label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: selected ? Colors.white : const Color(0xFF1B1F23),
+                  style: AppText.manrope(
+                    14,
+                    weight: FontWeight.w800,
+                    color: selected ? AppColors.paper : AppColors.ink,
                   ),
                 ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _FieldLabel extends StatelessWidget {
+  const _FieldLabel(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, top: 8, bottom: 8),
+      child: Text(text, style: AppText.label()),
+    );
+  }
+}
+
+/// 44px coloured circle with an icon, used at the start of each card row.
+class _IconCircle extends StatelessWidget {
+  const _IconCircle({
+    required this.icon,
+    this.background = AppColors.surfaceMuted,
+    this.color = AppColors.ink,
+  });
+
+  final IconData icon;
+  final Color background;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 44,
+      height: 44,
+      decoration: BoxDecoration(color: background, shape: BoxShape.circle),
+      child: Icon(icon, size: 20, color: color),
+    );
+  }
+}
+
+/// A row in the grouped details card: icon circle, small label and a control.
+class _CardRow extends StatelessWidget {
+  const _CardRow({
+    required this.icon,
+    required this.label,
+    required this.child,
+    this.iconBackground = AppColors.surfaceMuted,
+    this.iconColor = AppColors.ink,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget child;
+  final Color iconBackground;
+  final Color iconColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          _IconCircle(icon: icon, background: iconBackground, color: iconColor),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: AppText.manrope(
+                    12,
+                    weight: FontWeight.w800,
+                    color: AppColors.textMuted,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                child,
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
