@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import '../data/seed_data.dart';
 import '../models/task.dart';
 import '../models/task_activity.dart';
+import '../models/team_member.dart';
 
 /// Single access point for the local SQLite database (sqflite).
 ///
@@ -20,6 +21,7 @@ class DatabaseHelper {
   static const _activities = 'activities';
 
   /// Password given to the demo team and to members added from the Team tab.
+  /// Accounts made with "Create account" choose their own.
   static const demoPassword = 'sprint123';
 
   Database? _db;
@@ -48,51 +50,47 @@ class DatabaseHelper {
     }
   }
 
-  /// Creates the three tables and seeds demo data on first install.
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
       CREATE TABLE $_members (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        name          TEXT    NOT NULL,
-        role          TEXT    NOT NULL,
-        email         TEXT    NOT NULL UNIQUE,
-        color_index   INTEGER NOT NULL DEFAULT 0,
-        password      TEXT    NOT NULL DEFAULT '$demoPassword'
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        color_index INTEGER NOT NULL DEFAULT 0,
+        password TEXT NOT NULL DEFAULT '$demoPassword'
       )
     ''');
     await db.execute('''
       CREATE TABLE $_tasks (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        title        TEXT    NOT NULL,
-        description  TEXT    NOT NULL DEFAULT '',
-        category     TEXT    NOT NULL,
-        assignee_id  INTEGER NOT NULL REFERENCES $_members(id),
-        due_date     INTEGER NOT NULL,
-        priority     TEXT    NOT NULL,
-        status       TEXT    NOT NULL,
-        created_at   INTEGER NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL,
+        assignee_id INTEGER NOT NULL REFERENCES $_members(id),
+        due_date INTEGER NOT NULL,
+        priority TEXT NOT NULL,
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
         completed_at INTEGER
       )
     ''');
     await db.execute('''
       CREATE TABLE $_activities (
-        id         INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id    INTEGER NOT NULL REFERENCES $_tasks(id) ON DELETE CASCADE,
-        message    TEXT    NOT NULL,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL REFERENCES $_tasks(id) ON DELETE CASCADE,
+        message TEXT NOT NULL,
         created_at INTEGER NOT NULL
       )
     ''');
     await _seed(db);
   }
 
-  /// Inserts demo members and tasks, then writes the first activity row for
-  /// each task so the history tab is never empty on a fresh install.
   Future<void> _seed(Database db) async {
-    final namesById = <int, String>{};
     for (final member in seedMembers) {
-      await db.insert(_members, {...member.toMap(), 'password': demoPassword});
-      namesById[member.id] = member.name;
+      await db.insert(_members, member.toMap());
     }
+    final namesById = {for (final m in seedMembers) m.id: m.name};
 
     for (final task in buildSeedTasks(DateTime.now())) {
       final taskId = await db.insert(_tasks, task.toMap());
@@ -119,18 +117,24 @@ class DatabaseHelper {
 
   // ---------------------------------------------------------------- Members
 
-  Future<List<Map<String, Object?>>> getMembers() async {
+  Future<List<TeamMember>> getMembers() async {
     final db = await database;
-    return db.query(_members, orderBy: 'id ASC');
+    final rows = await db.query(_members, orderBy: 'id ASC');
+    return rows.map(TeamMember.fromMap).toList();
   }
 
-  /// Saves a new member and returns the row with its generated id.
-  Future<int> insertMember(Map<String, Object?> member) async {
+  /// Saves a new member. Without a [password] the member gets [demoPassword].
+  Future<TeamMember> insertMember(TeamMember member, {String? password}) async {
     final db = await database;
-    return db.insert(_members, member);
+    final id = await db.insert(_members, {
+      ...member.toMap(),
+      'password': ?password,
+    });
+    return member.copyWith(id: id);
   }
 
-  /// True when [password] matches the stored value for [memberId].
+  /// True when [password] belongs to the member. This is a local demo check,
+  /// not real authentication, so the password is stored as plain text.
   Future<bool> checkPassword(int memberId, String password) async {
     final db = await database;
     final rows = await db.query(
@@ -142,9 +146,14 @@ class DatabaseHelper {
     return rows.isNotEmpty;
   }
 
-  Future<void> updateMember(Map<String, Object?> member, int id) async {
+  Future<void> updateMember(TeamMember member) async {
     final db = await database;
-    await db.update(_members, member, where: 'id = ?', whereArgs: [id]);
+    await db.update(
+      _members,
+      member.toMap(),
+      where: 'id = ?',
+      whereArgs: [member.id],
+    );
   }
 
   Future<void> deleteMember(int id) async {
@@ -154,7 +163,7 @@ class DatabaseHelper {
 
   // ------------------------------------------------------------------ Tasks
 
-  /// All tasks ordered by earliest deadline first.
+  /// All tasks, earliest deadline first.
   Future<List<Task>> getTasks() async {
     final db = await database;
     final rows = await db.query(_tasks, orderBy: 'due_date ASC');
@@ -167,7 +176,7 @@ class DatabaseHelper {
     return rows.isEmpty ? null : Task.fromMap(rows.first);
   }
 
-  /// Saves a new task together with its first history entry in one transaction.
+  /// Saves a new task together with its first history entry.
   Future<Task> insertTask(Task task, {required String activity}) async {
     final db = await database;
     return db.transaction((txn) async {
@@ -184,9 +193,11 @@ class DatabaseHelper {
     });
   }
 
-  /// Updates a task and records every change in its history, all in one
-  /// transaction so the task and its log are never out of sync.
-  Future<void> updateTask(Task task, {List<String> activities = const []}) async {
+  /// Updates a task and records what changed in its history.
+  Future<void> updateTask(
+    Task task, {
+    List<String> activities = const [],
+  }) async {
     final db = await database;
     await db.transaction((txn) async {
       await txn.update(
@@ -206,7 +217,7 @@ class DatabaseHelper {
     });
   }
 
-  /// Convenience method: moves a task to [status] and returns the updated task.
+  /// Moves a task to [status] and returns the updated task.
   Future<Task> updateTaskStatus(Task task, TaskStatus status) async {
     final updated = task.withStatus(status);
     await updateTask(
@@ -216,16 +227,13 @@ class DatabaseHelper {
     return updated;
   }
 
-  /// Deletes a task. Its activity rows are removed automatically via
-  /// ON DELETE CASCADE.
+  /// Deletes a task. Its history rows go with it (ON DELETE CASCADE).
   Future<void> deleteTask(int id) async {
     final db = await database;
     await db.delete(_tasks, where: 'id = ?', whereArgs: [id]);
   }
 
-  // --------------------------------------------------------------- Activity
-
-  /// A task's history, newest entry first.
+  /// A task's history, newest first.
   Future<List<TaskActivity>> getActivities(int taskId) async {
     final db = await database;
     final rows = await db.query(

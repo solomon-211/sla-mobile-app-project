@@ -1,41 +1,39 @@
 import '../models/task.dart';
+import '../models/team_member.dart';
 
 /// Demo data inserted the first time the database is created.
 const seedProjectName = 'Mobile Banking v2 · Sprint 3';
 
-/// The four demo team members seeded on first launch.
 const seedMembers = [
-  _SeedMember(id: 1, name: 'Amina K.',  role: 'Project Manager',  email: 'amina@devteam.app',  colorIndex: 0),
-  _SeedMember(id: 2, name: 'Brian O.',  role: 'Backend Developer', email: 'brian@devteam.app',  colorIndex: 1),
-  _SeedMember(id: 3, name: 'Chloé M.', role: 'UI/UX Designer',    email: 'chloe@devteam.app',  colorIndex: 2),
-  _SeedMember(id: 4, name: 'Deng A.',  role: 'Mobile Developer',  email: 'deng@devteam.app',   colorIndex: 3),
+  TeamMember(
+    id: 1,
+    name: 'Amina K.',
+    role: 'Project Manager',
+    email: 'amina@devteam.app',
+    colorIndex: 0,
+  ),
+  TeamMember(
+    id: 2,
+    name: 'Brian O.',
+    role: 'Backend Developer',
+    email: 'brian@devteam.app',
+    colorIndex: 1,
+  ),
+  TeamMember(
+    id: 3,
+    name: 'Chloé M.',
+    role: 'UI/UX Designer',
+    email: 'chloe@devteam.app',
+    colorIndex: 2,
+  ),
+  TeamMember(
+    id: 4,
+    name: 'Deng A.',
+    role: 'Mobile Developer',
+    email: 'deng@devteam.app',
+    colorIndex: 3,
+  ),
 ];
-
-/// Lightweight struct used only during seeding so seed_data.dart stays
-/// independent of the full TeamMember model.
-class _SeedMember {
-  final int id;
-  final String name;
-  final String role;
-  final String email;
-  final int colorIndex;
-
-  const _SeedMember({
-    required this.id,
-    required this.name,
-    required this.role,
-    required this.email,
-    required this.colorIndex,
-  });
-
-  Map<String, Object?> toMap() => {
-        'id': id,
-        'name': name,
-        'role': role,
-        'email': email,
-        'color_index': colorIndex,
-      };
-}
 
 /// Deadlines are relative to [now] so a fresh install always shows a mix of
 /// On Track, At Risk, Overdue and Completed tasks.
@@ -87,51 +85,83 @@ List<Task> buildSeedTasks(DateTime now) {
       'Fix login token refresh',
       'Users are signed out after 15 minutes because the refresh token call '
           'fails silently. Retry once, then send the user to sign in.',
-      'Backend', 2, TaskPriority.high, TaskStatus.inProgress,
-      dueIn: const Duration(days: -1), createdDaysAgo: 6,
+      'Backend',
+      2,
+      TaskPriority.high,
+      TaskStatus.inProgress,
+      dueIn: const Duration(days: -1),
+      createdDaysAgo: 6,
     ),
     open(
       'Write API error states',
       'Show clear messages for timeout, 401 and 500 responses on the payment '
           'screens, with a retry button where it is safe.',
-      'Mobile', 1, TaskPriority.medium, TaskStatus.inProgress,
-      dueIn: const Duration(hours: 20), createdDaysAgo: 7,
+      'Mobile',
+      1,
+      TaskPriority.medium,
+      TaskStatus.inProgress,
+      dueIn: const Duration(hours: 20),
+      createdDaysAgo: 7,
     ),
     open(
       'Design onboarding screens',
       'Three screens that introduce transfers, savings goals and alerts.',
-      'UI/UX', 3, TaskPriority.medium, TaskStatus.inReview,
-      dueIn: const Duration(hours: 30), createdDaysAgo: 5,
+      'UI/UX',
+      3,
+      TaskPriority.medium,
+      TaskStatus.inReview,
+      dueIn: const Duration(hours: 30),
+      createdDaysAgo: 5,
     ),
     open(
       'Build transfer confirmation screen',
       'Summary of amount, recipient and fees before the transfer is sent.',
-      'Mobile', 4, TaskPriority.high, TaskStatus.inProgress,
-      dueIn: const Duration(days: 4), createdDaysAgo: 3,
+      'Mobile',
+      4,
+      TaskPriority.high,
+      TaskStatus.inProgress,
+      dueIn: const Duration(days: 4),
+      createdDaysAgo: 3,
     ),
     open(
       'Prepare sprint review slides',
       'Cover what shipped, what slipped and the plan for the next sprint.',
-      'General', 1, TaskPriority.low, TaskStatus.todo,
-      dueIn: const Duration(days: 5), createdDaysAgo: 1,
+      'General',
+      1,
+      TaskPriority.low,
+      TaskStatus.todo,
+      dueIn: const Duration(days: 5),
+      createdDaysAgo: 1,
     ),
     open(
       'Set up CI for Android builds',
       'Run analyze, tests and a debug build on every pull request.',
-      'DevOps', 4, TaskPriority.low, TaskStatus.todo,
-      dueIn: const Duration(days: 6), createdDaysAgo: 2,
+      'DevOps',
+      4,
+      TaskPriority.low,
+      TaskStatus.todo,
+      dueIn: const Duration(days: 6),
+      createdDaysAgo: 2,
     ),
     open(
       'Add rate limiting to payments API',
       'Limit each account to 10 payment requests per minute.',
-      'Backend', 2, TaskPriority.medium, TaskStatus.todo,
-      dueIn: const Duration(days: 8), createdDaysAgo: 2,
+      'Backend',
+      2,
+      TaskPriority.medium,
+      TaskStatus.todo,
+      dueIn: const Duration(days: 8),
+      createdDaysAgo: 2,
     ),
     open(
       'Usability test the signup flow',
       'Run five short sessions and write up the top three problems.',
-      'UI/UX', 3, TaskPriority.medium, TaskStatus.todo,
-      dueIn: const Duration(days: 9), createdDaysAgo: 1,
+      'UI/UX',
+      3,
+      TaskPriority.medium,
+      TaskStatus.todo,
+      dueIn: const Duration(days: 9),
+      createdDaysAgo: 1,
     ),
     done('Set up project repository', 'DevOps', 4, TaskPriority.high,
         dueDaysAgo: 10, completedDaysAgo: 11),
@@ -139,8 +169,9 @@ List<Task> buildSeedTasks(DateTime now) {
         dueDaysAgo: 8, completedDaysAgo: 9),
     done('Create design system colours', 'UI/UX', 3, TaskPriority.medium,
         dueDaysAgo: 6, completedDaysAgo: 7),
-    // Finished one day after its deadline – shows "Completed late".
-    done('Implement account balance endpoint', 'Backend', 2, TaskPriority.medium,
+    // Finished one day after its deadline, so it shows "Completed late".
+    done('Implement account balance endpoint', 'Backend', 2,
+        TaskPriority.medium,
         dueDaysAgo: 4, completedDaysAgo: 3),
     done('Build login screen', 'Mobile', 4, TaskPriority.high,
         dueDaysAgo: 3, completedDaysAgo: 4),
