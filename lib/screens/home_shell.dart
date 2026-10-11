@@ -230,12 +230,6 @@ class _HomeShellState extends State<HomeShell> {
                   label: 'Tasks',
                   tabIndex: _tasksTab,
                 ),
-                // Stats has no screen yet, so it is shown disabled.
-                TempoNavItem(
-                  icon: Icons.bar_chart_rounded,
-                  label: 'Stats',
-                  tabIndex: null,
-                ),
                 TempoNavItem(
                   icon: Icons.group_outlined,
                   label: 'Team',
