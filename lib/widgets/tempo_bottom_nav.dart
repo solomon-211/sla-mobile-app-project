@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// One destination in [TempoBottomNav]. A null [tabIndex] means the item has
-/// no screen yet and is shown disabled.
+/// One destination in [TempoBottomNav].
 class TempoNavItem {
   const TempoNavItem({
     required this.icon,
@@ -13,7 +12,7 @@ class TempoNavItem {
 
   final IconData icon;
   final String label;
-  final int? tabIndex;
+  final int tabIndex;
 }
 
 /// Floating pill navigation bar. The active item is a moss pill with icon
@@ -63,26 +62,7 @@ class TempoBottomNav extends StatelessWidget {
 
   Widget _buildItem(TempoNavItem item) {
     final tab = item.tabIndex;
-    final selected = tab != null && tab == currentTab;
-
-    if (tab == null) {
-      // No screen yet: visible but clearly disabled.
-      return Semantics(
-        label: '${item.label}, coming soon',
-        enabled: false,
-        child: Tooltip(
-          message: '${item.label} (coming soon)',
-          child: SizedBox.square(
-            dimension: 52,
-            child: Icon(
-              item.icon,
-              size: 22,
-              color: AppColors.textSoftDark.withValues(alpha: 0.35),
-            ),
-          ),
-        ),
-      );
-    }
+    final selected = tab == currentTab;
 
     return Semantics(
       selected: selected,
